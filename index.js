@@ -508,10 +508,8 @@ async function startBot() {
 
     }
   );
-
-
-  // ==========================================================
-  // MESSAGE EVENT
+ // ==========================================================
+  // MESSAGE EVENT — PRIVATE COMMAND BRIDGE
   // ==========================================================
 
   sock.ev.on(
@@ -528,35 +526,169 @@ async function startBot() {
         return;
       }
 
-      for (
-        const msg of messages
-      ) {
+      for (const msg of messages) {
 
         try {
 
-          if (
-            !msg.message
-          ) {
+          if (!msg?.message) {
             continue;
           }
 
           const jid =
-            msg.key.remoteJid;
+            msg.key?.remoteJid;
 
           if (!jid) {
             continue;
           }
 
+          // ----------------------------------------------------
+          // IGNORE STATUS / BROADCAST EVENTS
+          // ----------------------------------------------------
+
+          if (
+            jid === 'status@broadcast'
+          ) {
+            continue;
+          }
+
+          // ----------------------------------------------------
+          // EXTRACT TEXT
+          // ----------------------------------------------------
+
+          const message =
+            msg.message;
+
+          let text = '';
+
+          if (
+            typeof message.conversation === 'string'
+          ) {
+
+            text =
+              message.conversation;
+
+          } else if (
+            typeof message.extendedTextMessage?.text === 'string'
+          ) {
+
+            text =
+              message.extendedTextMessage.text;
+
+          } else if (
+            typeof message.imageMessage?.caption === 'string'
+          ) {
+
+            text =
+              message.imageMessage.caption;
+
+          } else if (
+            typeof message.videoMessage?.caption === 'string'
+          ) {
+
+            text =
+              message.videoMessage.caption;
+
+          }
+
+          text =
+            String(text || '').trim();
+
+          // ----------------------------------------------------
+          // COMMAND CHECK
+          // ----------------------------------------------------
+
+          if (
+            !text.startsWith(config.prefix)
+          ) {
+            continue;
+          }
+
+          const withoutPrefix =
+            text
+              .slice(config.prefix.length)
+              .trim();
+
+          if (!withoutPrefix) {
+            continue;
+          }
+
+          const parts =
+            withoutPrefix.split(/\s+/);
+
+          const command =
+            String(parts.shift() || '')
+              .toLowerCase();
+
+          const args =
+            parts;
+
+          // ----------------------------------------------------
+          // SENDER
+          // ----------------------------------------------------
+
+          const sender =
+            msg.key?.participant ||
+            msg.key?.remoteJid ||
+            '';
+
+          // ----------------------------------------------------
+          // SEND COMMAND TO PRIVATE SERVER
+          // ----------------------------------------------------
+
           console.log(
-            `[Message] ${jid}`
+            `[Command] Sending .${command} to private server...`
           );
 
-        } catch (
-          error
-        ) {
+          const result =
+            await privateRequest(
+              'POST',
+              '/api/command',
+              {
+                command,
+                args,
+                jid,
+                sender,
+                text,
+                accountId:
+                  restored.phone
+              }
+            );
+
+          console.log(
+            `[Private] .${command} response:`,
+            result?.message ||
+            result?.success
+              ? 'OK'
+              : 'FAILED'
+          );
+
+          // ----------------------------------------------------
+          // TEMPORARY TEST RESPONSE
+          // ----------------------------------------------------
+
+          if (
+            result?.success &&
+            result?.message
+          ) {
+
+            await sock.sendMessage(
+              jid,
+              {
+                text:
+                  `╭━━〔 MUFASER-X 〕━━╮\n\n` +
+                  `✅ Private server received:\n` +
+                  `.${command}\n\n` +
+                  `🔐 Private command bridge is working.\n\n` +
+                  `╰━━━━━━━━━━━━━━━━━━╯`
+              }
+            );
+
+          }
+
+        } catch (error) {
 
           console.error(
-            '[Message]',
+            '[Private Command Bridge]',
             error.message
           );
 
@@ -566,9 +698,6 @@ async function startBot() {
 
     }
   );
-
-}
-
 
 // ============================================================
 // PUBLIC SERVER
