@@ -34,18 +34,13 @@ const logger = pino({
 
 
 // ============================================================
-// ACCOUNT
+// BOT STATE
 // ============================================================
 
-const phone =
-  String(config.ownerNumber || '')
-    .replace(/\D/g, '');
-
-const sessionDir =
-  path.join(
-    config.sessionsDir,
-    phone || 'default'
-  );
+let sock = null;
+let reconnectTimer = null;
+let isStarting = false;
+let activeSession = null;
 
 
 // ============================================================
@@ -60,14 +55,13 @@ function restoreSessionId(sessionId) {
     );
   }
 
-  let raw =
-    String(sessionId).trim();
+  let raw = String(sessionId).trim();
 
-  raw =
-    raw.replace(
-      /^MUFASER-X:~/i,
-      ''
-    );
+  // Remove MUFASER-X session prefix
+  raw = raw.replace(
+    /^MUFASER-X:~/i,
+    ''
+  );
 
   if (!raw) {
     throw new Error(
@@ -79,11 +73,10 @@ function restoreSessionId(sessionId) {
 
   try {
 
-    decoded =
-      Buffer.from(
-        raw,
-        'base64'
-      );
+    decoded = Buffer.from(
+      raw,
+      'base64'
+    );
 
   } catch {
 
@@ -92,6 +85,16 @@ function restoreSessionId(sessionId) {
     );
 
   }
+
+  if (!decoded.length) {
+    throw new Error(
+      'SESSION_ID decoded to empty data.'
+    );
+  }
+
+  // ==========================================================
+  // DECOMPRESS SESSION
+  // ==========================================================
 
   let payloadText;
 
@@ -104,10 +107,15 @@ function restoreSessionId(sessionId) {
 
   } catch {
 
+    // Fallback for an uncompressed session
     payloadText =
       decoded.toString('utf8');
 
   }
+
+  // ==========================================================
+  // PARSE SESSION
+  // ==========================================================
 
   let payload;
 
@@ -124,10 +132,13 @@ function restoreSessionId(sessionId) {
 
   }
 
+  // ==========================================================
+  // VALIDATE SESSION FORMAT
+  // ==========================================================
+
   if (
     !payload ||
-    payload.format !==
-      'MUFASER-X-SESSION' ||
+    payload.format !== 'MUFASER-X-SESSION' ||
     !Array.isArray(payload.files)
   ) {
 
@@ -149,11 +160,20 @@ function restoreSessionId(sessionId) {
 
   }
 
+  const sessionsRoot =
+    path.resolve(
+      config.sessionsDir || './sessions'
+    );
+
   const restoredDir =
     path.join(
-      config.sessionsDir,
+      sessionsRoot,
       restoredPhone
     );
+
+  // ==========================================================
+  // CREATE SESSION DIRECTORY
+  // ==========================================================
 
   fs.mkdirSync(
     restoredDir,
@@ -162,9 +182,15 @@ function restoreSessionId(sessionId) {
     }
   );
 
-  for (
-    const file of payload.files
-  ) {
+  const root =
+    path.resolve(restoredDir) +
+    path.sep;
+
+  // ==========================================================
+  // RESTORE EVERY AUTH FILE
+  // ==========================================================
+
+  for (const file of payload.files) {
 
     if (
       !file ||
@@ -180,15 +206,15 @@ function restoreSessionId(sessionId) {
         file.path
       );
 
-    const root =
-      path.resolve(
-        restoredDir
-      ) + path.sep;
+    // Security: prevent path traversal
+    if (!target.startsWith(root)) {
 
-    if (
-      !target.startsWith(root)
-    ) {
+      console.warn(
+        `[Session] Skipping unsafe file: ${file.path}`
+      );
+
       continue;
+
     }
 
     fs.mkdirSync(
@@ -209,7 +235,11 @@ function restoreSessionId(sessionId) {
   }
 
   console.log(
-    `[Session] Restored for ${restoredPhone}`
+    `[Session] ✅ Restored for ${restoredPhone}`
+  );
+
+  console.log(
+    `[Session] Files restored: ${payload.files.length}`
   );
 
   return {
@@ -230,9 +260,7 @@ async function privateRequest(
   data = {}
 ) {
 
-  if (
-    !config.privateServerUrl
-  ) {
+  if (!config.privateServerUrl) {
 
     throw new Error(
       'PRIVATE_SERVER_URL is missing.'
@@ -270,14 +298,32 @@ async function privateRequest(
     });
 
   return response.data;
+
 }
 
 
 // ============================================================
-// WHATSAPP CONNECTION
+// START WHATSAPP
 // ============================================================
 
 async function startBot() {
+
+  // Prevent duplicate sockets
+  if (isStarting) {
+    return;
+  }
+
+  if (
+    sock &&
+    sock.user
+  ) {
+    console.log(
+      '[WhatsApp] Socket is already connected.'
+    );
+    return;
+  }
+
+  isStarting = true;
 
   console.log('');
   console.log(
@@ -293,14 +339,27 @@ async function startBot() {
     '============================================'
   );
 
-  if (!config.sessionId) {
+  // ==========================================================
+  // SESSION FROM ENVIRONMENT
+  // ==========================================================
 
-    console.log(
-      '[Session] SESSION_ID not found.'
+  const sessionId =
+    String(
+      process.env.SESSION_ID ||
+      config.sessionId ||
+      ''
+    ).trim();
+
+  if (!sessionId) {
+
+    isStarting = false;
+
+    console.error(
+      '[Session] ❌ SESSION_ID not found.'
     );
 
-    console.log(
-      '[Session] Add SESSION_ID to Render Environment Variables.'
+    console.error(
+      '[Session] Add SESSION_ID to your environment variables.'
     );
 
     return;
@@ -313,13 +372,15 @@ async function startBot() {
 
     restored =
       restoreSessionId(
-        config.sessionId
+        sessionId
       );
 
   } catch (error) {
 
+    isStarting = false;
+
     console.error(
-      '[Session] Restore failed:',
+      '[Session] ❌ Restore failed:',
       error.message
     );
 
@@ -327,29 +388,67 @@ async function startBot() {
 
   }
 
+  activeSession = restored;
+
   const {
+    phone,
     sessionDir
   } = restored;
 
-  const {
-    state,
-    saveCreds
-  } =
-    await useMultiFileAuthState(
-      sessionDir
+  // ==========================================================
+  // BAILEYS AUTH STATE
+  // ==========================================================
+
+  let state;
+  let saveCreds;
+
+  try {
+
+    const auth =
+      await useMultiFileAuthState(
+        sessionDir
+      );
+
+    state = auth.state;
+    saveCreds = auth.saveCreds;
+
+  } catch (error) {
+
+    isStarting = false;
+
+    console.error(
+      '[Session] ❌ Failed to load auth state:',
+      error.message
     );
+
+    return;
+
+  }
+
+  // ==========================================================
+  // WHATSAPP VERSION
+  // ==========================================================
 
   let version;
 
   try {
 
-    const latest =
+    const {
+      version: latestVersion
+    } =
       await fetchLatestBaileysVersion();
 
-    version =
-      latest.version;
+    version = latestVersion;
 
-  } catch {
+    console.log(
+      `[WhatsApp] Version: ${version.join('.')}`
+    );
+
+  } catch (error) {
+
+    console.log(
+      '[WhatsApp] ⚠️ Using fallback WhatsApp version.'
+    );
 
     version = [
       2,
@@ -359,46 +458,78 @@ async function startBot() {
 
   }
 
-  const sock =
-    makeWASocket({
+  // ==========================================================
+  // CREATE SOCKET
+  // ==========================================================
 
-      version,
+  try {
 
-      auth: {
+    sock =
+      makeWASocket({
 
-        creds:
-          state.creds,
+        version,
 
-        keys:
-          makeCacheableSignalKeyStore(
-            state.keys,
-            logger
-          )
+        auth: {
 
-      },
+          creds:
+            state.creds,
 
-      browser: [
-        'MUFASER-X',
-        'Chrome',
-        '120.0.0.0'
-      ],
+          keys:
+            makeCacheableSignalKeyStore(
+              state.keys,
+              logger
+            )
 
-      printQRInTerminal: false,
+        },
 
-      syncFullHistory: false,
+        // IMPORTANT:
+        // Same browser configuration as the
+        // old proven working MUFASER-X bot.
+        browser: [
+          'Ubuntu',
+          'Chrome',
+          '120.0.0.0'
+        ],
 
-      markOnlineOnConnect: true,
+        printQRInTerminal: false,
 
-      connectTimeoutMs: 60000,
+        syncFullHistory: false,
 
-      defaultQueryTimeoutMs: 30000,
+        markOnlineOnConnect: true,
 
-      keepAliveIntervalMs: 25000,
+        connectTimeoutMs: 60000,
 
-      logger
+        defaultQueryTimeoutMs: 30000,
 
-    });
+        keepAliveIntervalMs: 25000,
 
+        maxRetries: 5,
+
+        fireInitQueries: false,
+
+        emitOwnEvents: true,
+
+        defaultCongestionControl: 1,
+
+        logger
+
+      });
+
+  } catch (error) {
+
+    sock = null;
+    isStarting = false;
+
+    console.error(
+      '[WhatsApp] ❌ Socket creation failed:',
+      error.message
+    );
+
+    return;
+
+  }
+
+  isStarting = false;
 
   // ==========================================================
   // SAVE CREDENTIALS
@@ -406,12 +537,27 @@ async function startBot() {
 
   sock.ev.on(
     'creds.update',
-    saveCreds
+    async () => {
+
+      try {
+
+        await saveCreds();
+
+      } catch (error) {
+
+        console.error(
+          '[Session] Save credentials failed:',
+          error.message
+        );
+
+      }
+
+    }
   );
 
 
   // ==========================================================
-  // CONNECTION
+  // CONNECTION UPDATE
   // ==========================================================
 
   sock.ev.on(
@@ -420,6 +566,10 @@ async function startBot() {
       connection,
       lastDisconnect
     }) => {
+
+      // ------------------------------------------------------
+      // CONNECTING
+      // ------------------------------------------------------
 
       if (
         connection === 'connecting'
@@ -431,6 +581,10 @@ async function startBot() {
 
       }
 
+
+      // ------------------------------------------------------
+      // OPEN
+      // ------------------------------------------------------
 
       if (
         connection === 'open'
@@ -448,11 +602,19 @@ async function startBot() {
         );
 
         console.log(
-          `[WhatsApp] Number: ${restored.phone}`
+          `[WhatsApp] Number: ${phone}`
+        );
+
+        console.log(
+          '[WhatsApp] Public launcher is ready.'
         );
 
       }
 
+
+      // ------------------------------------------------------
+      // CLOSE
+      // ------------------------------------------------------
 
       if (
         connection === 'close'
@@ -469,46 +631,79 @@ async function startBot() {
           `[WhatsApp] Connection closed: ${statusCode}`
         );
 
+        sock = null;
+
+        const loggedOut =
+          statusCode ===
+          DisconnectReason.loggedOut;
+
+        const badSession =
+          statusCode ===
+          DisconnectReason.badSession;
+
+        // ----------------------------------------------------
+        // DO NOT RECONNECT FOR INVALID SESSION
+        // ----------------------------------------------------
+
         if (
-          statusCode !==
-            DisconnectReason.loggedOut &&
-          statusCode !==
-            DisconnectReason.badSession
+          loggedOut ||
+          badSession
         ) {
 
-          console.log(
-            '[WhatsApp] Reconnecting in 5 seconds...'
+          console.error(
+            '[WhatsApp] ❌ Session is no longer valid.'
           );
 
-          setTimeout(
-            () => {
+          console.error(
+            '[WhatsApp] Generate a new SESSION_ID.'
+          );
 
-              startBot()
-                .catch(
-                  error =>
-                    console.error(
-                      '[Reconnect]',
-                      error.message
-                    )
+          return;
+
+        }
+
+        // ----------------------------------------------------
+        // PREVENT MULTIPLE RECONNECT TIMERS
+        // ----------------------------------------------------
+
+        if (reconnectTimer) {
+          return;
+        }
+
+        console.log(
+          '[WhatsApp] Reconnecting in 5 seconds...'
+        );
+
+        reconnectTimer =
+          setTimeout(
+            async () => {
+
+              reconnectTimer = null;
+
+              try {
+
+                await startBot();
+
+              } catch (error) {
+
+                console.error(
+                  '[Reconnect]',
+                  error.message
                 );
+
+              }
 
             },
             5000
           );
 
-        } else {
-
-          console.log(
-            '[WhatsApp] Session is no longer valid.'
-          );
-
-        }
-
       }
 
     }
   );
- // ==========================================================
+
+
+  // ==========================================================
   // MESSAGE EVENT — PRIVATE COMMAND BRIDGE
   // ==========================================================
 
@@ -541,9 +736,9 @@ async function startBot() {
             continue;
           }
 
-          // ----------------------------------------------------
-          // IGNORE STATUS / BROADCAST EVENTS
-          // ----------------------------------------------------
+          // --------------------------------------------------
+          // IGNORE STATUS
+          // --------------------------------------------------
 
           if (
             jid === 'status@broadcast'
@@ -551,61 +746,90 @@ async function startBot() {
             continue;
           }
 
-          // ----------------------------------------------------
-          // EXTRACT TEXT
-          // ----------------------------------------------------
+          // --------------------------------------------------
+          // IGNORE PROTOCOL / SYSTEM MESSAGES
+          // --------------------------------------------------
 
           const message =
             msg.message;
 
+          // --------------------------------------------------
+          // EXTRACT TEXT
+          // --------------------------------------------------
+
           let text = '';
 
           if (
-            typeof message.conversation === 'string'
+            typeof message.conversation ===
+            'string'
           ) {
 
             text =
               message.conversation;
 
-          } else if (
-            typeof message.extendedTextMessage?.text === 'string'
+          }
+
+          else if (
+            typeof message
+              .extendedTextMessage
+              ?.text === 'string'
           ) {
 
             text =
-              message.extendedTextMessage.text;
+              message
+                .extendedTextMessage
+                .text;
 
-          } else if (
-            typeof message.imageMessage?.caption === 'string'
+          }
+
+          else if (
+            typeof message
+              .imageMessage
+              ?.caption === 'string'
           ) {
 
             text =
-              message.imageMessage.caption;
+              message
+                .imageMessage
+                .caption;
 
-          } else if (
-            typeof message.videoMessage?.caption === 'string'
+          }
+
+          else if (
+            typeof message
+              .videoMessage
+              ?.caption === 'string'
           ) {
 
             text =
-              message.videoMessage.caption;
+              message
+                .videoMessage
+                .caption;
 
           }
 
           text =
-            String(text || '').trim();
+            String(
+              text || ''
+            ).trim();
 
-          // ----------------------------------------------------
+          // --------------------------------------------------
           // COMMAND CHECK
-          // ----------------------------------------------------
+          // --------------------------------------------------
 
           if (
-            !text.startsWith(config.prefix)
+            !text.startsWith(
+              config.prefix
+            )
           ) {
             continue;
           }
 
           const withoutPrefix =
             text
-              .slice(config.prefix.length)
+              .slice(
+                config.prefix.length
+              )
               .trim();
 
           if (!withoutPrefix) {
@@ -613,27 +837,30 @@ async function startBot() {
           }
 
           const parts =
-            withoutPrefix.split(/\s+/);
+            withoutPrefix.split(
+              /\s+/
+            );
 
           const command =
-            String(parts.shift() || '')
-              .toLowerCase();
+            String(
+              parts.shift() || ''
+            ).toLowerCase();
 
           const args =
             parts;
 
-          // ----------------------------------------------------
+          // --------------------------------------------------
           // SENDER
-          // ----------------------------------------------------
+          // --------------------------------------------------
 
           const sender =
             msg.key?.participant ||
             msg.key?.remoteJid ||
             '';
 
-          // ----------------------------------------------------
+          // --------------------------------------------------
           // SEND COMMAND TO PRIVATE SERVER
-          // ----------------------------------------------------
+          // --------------------------------------------------
 
           console.log(
             `[Command] Sending .${command} to private server...`
@@ -644,27 +871,33 @@ async function startBot() {
               'POST',
               '/api/command',
               {
+
                 command,
+
                 args,
+
                 jid,
+
                 sender,
+
                 text,
+
                 accountId:
-                  restored.phone
+                  phone
+
               }
             );
 
           console.log(
             `[Private] .${command} response:`,
-            result?.message ||
             result?.success
               ? 'OK'
               : 'FAILED'
           );
 
-          // ----------------------------------------------------
-          // TEMPORARY TEST RESPONSE
-          // ----------------------------------------------------
+          // --------------------------------------------------
+          // PRIVATE SERVER RESPONSE
+          // --------------------------------------------------
 
           if (
             result?.success &&
@@ -675,11 +908,7 @@ async function startBot() {
               jid,
               {
                 text:
-                  `╭━━〔 MUFASER-X 〕━━╮\n\n` +
-                  `✅ Private server received:\n` +
-                  `.${command}\n\n` +
-                  `🔐 Private command bridge is working.\n\n` +
-                  `╰━━━━━━━━━━━━━━━━━━╯`
+                  result.message
               }
             );
 
@@ -699,8 +928,11 @@ async function startBot() {
     }
   );
 
+}
+
+
 // ============================================================
-// PUBLIC SERVER
+// PUBLIC SERVER — HEALTH
 // ============================================================
 
 app.get(
@@ -718,18 +950,29 @@ app.get(
         'public',
 
       status:
-        'online',
+        sock?.user
+          ? 'connected'
+          : 'starting',
 
       sessionConfigured:
         Boolean(
+          process.env.SESSION_ID ||
           config.sessionId
-        )
+        ),
+
+      phone:
+        activeSession?.phone ||
+        null
 
     });
 
   }
 );
 
+
+// ============================================================
+// PUBLIC SERVER — HOME
+// ============================================================
 
 app.get(
   '/',
@@ -783,7 +1026,9 @@ app.get(
 // ============================================================
 
 const PORT =
-  config.port;
+  config.port ||
+  process.env.PORT ||
+  3000;
 
 app.listen(
   PORT,
