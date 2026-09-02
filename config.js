@@ -1,8 +1,3 @@
-// ============================================================
-// MUFASER-X — PUBLIC BOT CONFIG
-// WhatsApp Multi-Device Bot by ROMA-TECH
-// ============================================================
-
 require('dotenv').config();
 
 module.exports = {
@@ -18,16 +13,19 @@ module.exports = {
     process.env.OWNER_NUMBER || ''
   ).replace(/\D/g, ''),
 
-  // Session ID supplied through Render Environment Variables
-  sessionId: process.env.SESSION_ID || '',
+  sessionId: String(
+    process.env.SESSION_ID || ''
+  ).trim(),
 
-  // Private MUFASER-X server
   privateServerUrl:
-    process.env.PRIVATE_SERVER_URL || '',
+    String(
+      process.env.PRIVATE_SERVER_URL || ''
+    ).trim(),
 
-  // Private server authentication
   privateApiKey:
-    process.env.PRIVATE_API_KEY || '',
+    String(
+      process.env.PRIVATE_API_KEY || ''
+    ).trim(),
 
   sessionsDir: './sessions',
 
