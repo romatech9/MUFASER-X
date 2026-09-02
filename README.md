@@ -47,7 +47,7 @@ Step-by-step video guide to help you
   </a>
 </p>
 
- # MUFASER-X WhatsApp Bot
+ ## MUFASER-X WhatsApp Bot
 
 > WhatsApp Multi-Device Bot powered by [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys)  
 > Developer: **ROMA-TECH**
