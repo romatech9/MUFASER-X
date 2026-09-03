@@ -13,20 +13,22 @@ module.exports = {
     process.env.OWNER_NUMBER || ''
   ).replace(/\D/g, ''),
 
+  // ==========================================================
+  // SESSION ID — READ DIRECTLY FROM PANEL ENVIRONMENT
+  // ==========================================================
   sessionId: String(
     process.env.SESSION_ID || ''
   ).trim(),
 
-  privateServerUrl:
-    String(
-      process.env.PRIVATE_SERVER_URL || ''
-    ).trim(),
+  privateServerUrl: String(
+    process.env.PRIVATE_SERVER_URL || ''
+  ).trim(),
 
-  privateApiKey:
-    String(
-      process.env.PRIVATE_API_KEY || ''
-    ).trim(),
+  privateApiKey: String(
+    process.env.PRIVATE_API_KEY || ''
+  ).trim(),
 
+  //  Baileys files
   sessionsDir: './sessions',
 
   autoReconnect: true

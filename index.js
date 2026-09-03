@@ -1,6 +1,13 @@
 // ============================================================
 // MUFASER-X — PUBLIC LAUNCHER
 // WhatsApp Multi-Device Bot by ROMA-TECH
+//
+// PURPOSE:
+// - Read SESSION_ID from environment variables
+// - Restore Baileys session automatically
+// - Run MUFASER-X on any supported hosting panel
+// - Reconnect using the locally restored session
+// - Forward commands to the private command server
 // ============================================================
 
 require('dotenv').config();
@@ -28,10 +35,13 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ============================================================
+// LOGGER
+// ============================================================
+
 const logger = pino({
   level: 'silent'
 });
-
 
 // ============================================================
 // BOT STATE
@@ -42,18 +52,45 @@ let reconnectTimer = null;
 let isStarting = false;
 let activeSession = null;
 
-
 // ============================================================
 // ENVIRONMENT
 // ============================================================
-
-const ENV_SESSION_ID =
-  String(process.env.SESSION_ID || '').trim();
 
 const ENV_OWNER_NUMBER =
   String(process.env.OWNER_NUMBER || '')
     .replace(/\D/g, '');
 
+// ============================================================
+// SESSION HELPERS
+// ============================================================
+
+function getSessionsRoot() {
+  return path.resolve(
+    config.sessionsDir || './sessions'
+  );
+}
+
+// ------------------------------------------------------------
+// Check whether a usable local session already exists
+// ------------------------------------------------------------
+
+function localSessionExists(sessionDir) {
+
+  if (!sessionDir) {
+    return false;
+  }
+
+  const credsPath =
+    path.join(
+      sessionDir,
+      'creds.json'
+    );
+
+  return (
+    fs.existsSync(sessionDir) &&
+    fs.existsSync(credsPath)
+  );
+}
 
 // ============================================================
 // RESTORE SESSION ID
@@ -70,6 +107,10 @@ function restoreSessionId(sessionId) {
   let raw =
     String(sessionId).trim();
 
+  // ----------------------------------------------------------
+  // Remove MUFASER-X prefix
+  // ----------------------------------------------------------
+
   raw =
     raw.replace(
       /^MUFASER-X:~/i,
@@ -81,6 +122,10 @@ function restoreSessionId(sessionId) {
       'Invalid SESSION_ID.'
     );
   }
+
+  // ----------------------------------------------------------
+  // Decode Base64
+  // ----------------------------------------------------------
 
   let decoded;
 
@@ -101,14 +146,16 @@ function restoreSessionId(sessionId) {
   }
 
   if (!decoded.length) {
+
     throw new Error(
       'SESSION_ID decoded to empty data.'
     );
+
   }
 
-  // ==========================================================
-  // DECOMPRESS
-  // ==========================================================
+  // ----------------------------------------------------------
+  // Decompress
+  // ----------------------------------------------------------
 
   let payloadText;
 
@@ -122,14 +169,24 @@ function restoreSessionId(sessionId) {
   } catch {
 
     // Support uncompressed session data too
-    payloadText =
-      decoded.toString('utf8');
+    try {
+
+      payloadText =
+        decoded.toString('utf8');
+
+    } catch {
+
+      throw new Error(
+        'Unable to decode SESSION_ID data.'
+      );
+
+    }
 
   }
 
-  // ==========================================================
-  // PARSE
-  // ==========================================================
+  // ----------------------------------------------------------
+  // Parse JSON
+  // ----------------------------------------------------------
 
   let payload;
 
@@ -146,14 +203,13 @@ function restoreSessionId(sessionId) {
 
   }
 
-  // ==========================================================
-  // VALIDATE
-  // ==========================================================
+  // ----------------------------------------------------------
+  // Validate format
+  // ----------------------------------------------------------
 
   if (
     !payload ||
-    payload.format !==
-      'MUFASER-X-SESSION' ||
+    payload.format !== 'MUFASER-X-SESSION' ||
     !Array.isArray(payload.files)
   ) {
 
@@ -162,6 +218,10 @@ function restoreSessionId(sessionId) {
     );
 
   }
+
+  // ----------------------------------------------------------
+  // Restore phone
+  // ----------------------------------------------------------
 
   const restoredPhone =
     String(payload.phone || '')
@@ -175,11 +235,12 @@ function restoreSessionId(sessionId) {
 
   }
 
+  // ----------------------------------------------------------
+  // Session directory
+  // ----------------------------------------------------------
+
   const sessionsRoot =
-    path.resolve(
-      config.sessionsDir ||
-      './sessions'
-    );
+    getSessionsRoot();
 
   const restoredDir =
     path.join(
@@ -187,9 +248,9 @@ function restoreSessionId(sessionId) {
       restoredPhone
     );
 
-  // ==========================================================
-  // CREATE DIRECTORY
-  // ==========================================================
+  // ----------------------------------------------------------
+  // Create directory
+  // ----------------------------------------------------------
 
   fs.mkdirSync(
     restoredDir,
@@ -203,9 +264,9 @@ function restoreSessionId(sessionId) {
       restoredDir
     ) + path.sep;
 
-  // ==========================================================
-  // RESTORE AUTH FILES
-  // ==========================================================
+  // ----------------------------------------------------------
+  // Restore authentication files
+  // ----------------------------------------------------------
 
   let restoredFiles = 0;
 
@@ -219,6 +280,19 @@ function restoreSessionId(sessionId) {
       typeof file.data !== 'string'
     ) {
       continue;
+    }
+
+    // Prevent absolute paths
+    if (
+      path.isAbsolute(file.path)
+    ) {
+
+      console.warn(
+        `[Session] Skipping absolute path: ${file.path}`
+      );
+
+      continue;
+
     }
 
     const target =
@@ -247,15 +321,26 @@ function restoreSessionId(sessionId) {
       }
     );
 
-    fs.writeFileSync(
-      target,
-      Buffer.from(
-        file.data,
-        'base64'
-      )
-    );
+    try {
 
-    restoredFiles++;
+      fs.writeFileSync(
+        target,
+        Buffer.from(
+          file.data,
+          'base64'
+        )
+      );
+
+      restoredFiles++;
+
+    } catch (error) {
+
+      console.error(
+        `[Session] Failed to restore ${file.path}:`,
+        error.message
+      );
+
+    }
 
   }
 
@@ -281,7 +366,6 @@ function restoreSessionId(sessionId) {
   };
 
 }
-
 
 // ============================================================
 // PRIVATE SERVER REQUEST
@@ -336,6 +420,74 @@ async function privateRequest(
 
 }
 
+// ============================================================
+// RESTORE SESSION IF REQUIRED
+// ============================================================
+
+function prepareSession() {
+
+  const sessionsRoot =
+    getSessionsRoot();
+
+  fs.mkdirSync(
+    sessionsRoot,
+    {
+      recursive: true
+    }
+  );
+
+  // ----------------------------------------------------------
+  // If we already know the active session and its files exist,
+  // keep using them.
+  // ----------------------------------------------------------
+
+  if (
+    activeSession &&
+    activeSession.phone &&
+    activeSession.sessionDir &&
+    localSessionExists(
+      activeSession.sessionDir
+    )
+  ) {
+
+    console.log(
+      `[Session] ♻️ Using existing local session for ${activeSession.phone}`
+    );
+
+    return activeSession;
+
+  }
+
+  // ----------------------------------------------------------
+  // SESSION_ID must come from ENV/config for a fresh startup.
+  // ----------------------------------------------------------
+
+  const sessionId =
+    config.sessionId;
+
+  if (!sessionId) {
+
+    throw new Error(
+      'SESSION_ID not found in environment variables.'
+    );
+
+  }
+
+  console.log(
+    '[Session] 🔐 SESSION_ID found in environment.'
+  );
+
+  const restored =
+    restoreSessionId(
+      sessionId
+    );
+
+  activeSession =
+    restored;
+
+  return restored;
+
+}
 
 // ============================================================
 // START WHATSAPP BOT
@@ -343,10 +495,23 @@ async function privateRequest(
 
 async function startBot() {
 
-  // Prevent duplicate connections
+  // ----------------------------------------------------------
+  // Prevent duplicate startup
+  // ----------------------------------------------------------
+
   if (isStarting) {
+
+    console.log(
+      '[WhatsApp] Startup already in progress.'
+    );
+
     return;
+
   }
+
+  // ----------------------------------------------------------
+  // Already connected
+  // ----------------------------------------------------------
 
   if (
     sock &&
@@ -377,71 +542,49 @@ async function startBot() {
     '============================================'
   );
 
-  // ==========================================================
-  // READ SESSION ID DIRECTLY FROM ENV
-  // ==========================================================
-
-  const sessionId =
-    String(
-      process.env.SESSION_ID || ''
-    ).trim();
-
-  if (!sessionId) {
-
-    isStarting = false;
-
-    console.error('');
-    console.error(
-      '[Session] ❌ SESSION_ID not found.'
-    );
-
-    console.error(
-      '[Session] Add SESSION_ID to your environment variables.'
-    );
-
-    console.error('');
-
-    return;
-
-  }
-
-  console.log(
-    '[Session] SESSION_ID found in environment.'
-  );
-
-  // ==========================================================
-  // RESTORE SESSION
-  // ==========================================================
-
   let restored;
 
   try {
 
+    // ========================================================
+    // SESSION PREPARATION
+    // ========================================================
+
     restored =
-      restoreSessionId(
-        sessionId
-      );
+      prepareSession();
 
   } catch (error) {
 
     isStarting = false;
 
+    console.error('');
     console.error(
-      '[Session] ❌ Restore failed:',
+      '[Session] ❌ Session preparation failed:',
       error.message
     );
+
+    console.error(
+      '[Session] Add a valid SESSION_ID to your panel environment variables.'
+    );
+
+    console.error('');
 
     return;
 
   }
 
-  activeSession =
-    restored;
-
   const {
     phone,
     sessionDir
   } = restored;
+
+  console.log(
+    `[Session] 📱 Number: ${phone}`
+  );
+
+  console.log(
+    `[Session] 📁 Directory: ${sessionDir}`
+  );
 
   // ==========================================================
   // LOAD BAILEYS AUTH
@@ -468,7 +611,7 @@ async function startBot() {
     isStarting = false;
 
     console.error(
-      '[Session] ❌ Failed to load auth:',
+      '[Session] ❌ Failed to load Baileys auth:',
       error.message
     );
 
@@ -534,33 +677,41 @@ async function startBot() {
 
         },
 
-        // Same browser configuration
-        // as the old working MUFASER-X setup.
         browser: [
           'Ubuntu',
           'Chrome',
           '120.0.0.0'
         ],
 
-        printQRInTerminal: false,
+        printQRInTerminal:
+          false,
 
-        syncFullHistory: false,
+        syncFullHistory:
+          false,
 
-        markOnlineOnConnect: true,
+        markOnlineOnConnect:
+          true,
 
-        connectTimeoutMs: 60000,
+        connectTimeoutMs:
+          60000,
 
-        defaultQueryTimeoutMs: 30000,
+        defaultQueryTimeoutMs:
+          30000,
 
-        keepAliveIntervalMs: 25000,
+        keepAliveIntervalMs:
+          25000,
 
-        maxRetries: 5,
+        maxRetries:
+          5,
 
-        fireInitQueries: false,
+        fireInitQueries:
+          false,
 
-        emitOwnEvents: true,
+        emitOwnEvents:
+          true,
 
-        defaultCongestionControl: 1,
+        defaultCongestionControl:
+          1,
 
         logger
 
@@ -597,7 +748,7 @@ async function startBot() {
       } catch (error) {
 
         console.error(
-          '[Session] Save credentials failed:',
+          '[Session] ❌ Save credentials failed:',
           error.message
         );
 
@@ -605,7 +756,6 @@ async function startBot() {
 
     }
   );
-
 
   // ==========================================================
   // CONNECTION UPDATE
@@ -627,11 +777,10 @@ async function startBot() {
       ) {
 
         console.log(
-          '[WhatsApp] Connecting...'
+          '[WhatsApp] 🔄 Connecting...'
         );
 
       }
-
 
       // ------------------------------------------------------
       // CONNECTED
@@ -662,7 +811,6 @@ async function startBot() {
 
       }
 
-
       // ------------------------------------------------------
       // CONNECTION CLOSED
       // ------------------------------------------------------
@@ -684,6 +832,10 @@ async function startBot() {
 
         sock = null;
 
+        // ----------------------------------------------------
+        // INVALID / LOGGED OUT SESSION
+        // ----------------------------------------------------
+
         const loggedOut =
           statusCode ===
           DisconnectReason.loggedOut;
@@ -691,10 +843,6 @@ async function startBot() {
         const badSession =
           statusCode ===
           DisconnectReason.badSession;
-
-        // ----------------------------------------------------
-        // INVALID SESSION
-        // ----------------------------------------------------
 
         if (
           loggedOut ||
@@ -706,7 +854,7 @@ async function startBot() {
           );
 
           console.error(
-            '[WhatsApp] Generate a new SESSION_ID.'
+            '[WhatsApp] Generate a new SESSION_ID and redeploy.'
           );
 
           return;
@@ -714,22 +862,27 @@ async function startBot() {
         }
 
         // ----------------------------------------------------
-        // PREVENT DUPLICATE RECONNECT
+        // Prevent duplicate reconnect timers
         // ----------------------------------------------------
 
-        if (reconnectTimer) {
+        if (
+          reconnectTimer
+        ) {
+
           return;
+
         }
 
         console.log(
-          '[WhatsApp] Reconnecting in 5 seconds...'
+          '[WhatsApp] 🔄 Reconnecting in 5 seconds...'
         );
 
         reconnectTimer =
           setTimeout(
             async () => {
 
-              reconnectTimer = null;
+              reconnectTimer =
+                null;
 
               try {
 
@@ -738,7 +891,7 @@ async function startBot() {
               } catch (error) {
 
                 console.error(
-                  '[Reconnect]',
+                  '[Reconnect] ❌',
                   error.message
                 );
 
@@ -752,7 +905,6 @@ async function startBot() {
 
     }
   );
-
 
   // ==========================================================
   // MESSAGE EVENT
@@ -770,7 +922,9 @@ async function startBot() {
         type !== 'notify' &&
         type !== 'append'
       ) {
+
         return;
+
       }
 
       for (
@@ -779,32 +933,40 @@ async function startBot() {
 
         try {
 
-          if (!msg?.message) {
+          if (
+            !msg?.message
+          ) {
+
             continue;
+
           }
 
           const jid =
             msg.key?.remoteJid;
 
           if (!jid) {
+
             continue;
+
           }
 
           // --------------------------------------------------
-          // IGNORE STATUS
+          // Ignore WhatsApp Status
           // --------------------------------------------------
 
           if (
             jid === 'status@broadcast'
           ) {
+
             continue;
+
           }
 
           const message =
             msg.message;
 
           // --------------------------------------------------
-          // EXTRACT TEXT
+          // Extract text
           // --------------------------------------------------
 
           let text = '';
@@ -864,7 +1026,7 @@ async function startBot() {
             ).trim();
 
           // --------------------------------------------------
-          // COMMAND CHECK
+          // Command check
           // --------------------------------------------------
 
           if (
@@ -872,7 +1034,9 @@ async function startBot() {
               config.prefix
             )
           ) {
+
             continue;
+
           }
 
           const withoutPrefix =
@@ -883,7 +1047,9 @@ async function startBot() {
               .trim();
 
           if (!withoutPrefix) {
+
             continue;
+
           }
 
           const parts =
@@ -900,7 +1066,7 @@ async function startBot() {
             parts;
 
           // --------------------------------------------------
-          // SENDER
+          // Sender
           // --------------------------------------------------
 
           const sender =
@@ -909,7 +1075,7 @@ async function startBot() {
             '';
 
           // --------------------------------------------------
-          // SEND TO PRIVATE SERVER
+          // SEND COMMAND TO PRIVATE SERVER
           // --------------------------------------------------
 
           console.log(
@@ -980,7 +1146,6 @@ async function startBot() {
 
 }
 
-
 // ============================================================
 // HEALTH
 // ============================================================
@@ -991,7 +1156,8 @@ app.get(
 
     res.json({
 
-      success: true,
+      success:
+        true,
 
       bot:
         'MUFASER-X',
@@ -1009,7 +1175,7 @@ app.get(
 
       sessionConfigured:
         Boolean(
-          process.env.SESSION_ID
+          config.sessionId
         ),
 
       phone:
@@ -1020,7 +1186,6 @@ app.get(
 
   }
 );
-
 
 // ============================================================
 // HOME
@@ -1072,7 +1237,6 @@ app.get(
   }
 );
 
-
 // ============================================================
 // START EXPRESS
 // ============================================================
@@ -1091,6 +1255,10 @@ app.listen(
       `[Server] Public launcher running on port ${PORT}`
     );
 
+    // --------------------------------------------------------
+    // START BOT
+    // --------------------------------------------------------
+
     startBot()
       .catch(
         error => {
@@ -1105,7 +1273,6 @@ app.listen(
 
   }
 );
-
 
 // ============================================================
 // ERROR HANDLERS
