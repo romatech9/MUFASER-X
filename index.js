@@ -1,5 +1,4 @@
-// MUFASER-X — PUBLIC LAUNCHER - FAST VERSION by ROMA-TECH
-// Fixed for slow commands
+// MUFASER-X — PUBLIC LAUNCHER - SUPER FAST FIXED by ROMA-TECH
 require('dotenv').config();
 
 const {
@@ -20,25 +19,23 @@ const http = require('http');
 const https = require('https');
 
 const config = require('./config');
+
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 const logger = pino({ level: 'silent' });
+
 let sock = null;
 let reconnectTimer = null;
 let isStarting = false;
 let activeSession = null;
 
-// FAST AXIOS - KeepAlive + low timeout
-const axiosInstance = axios.create({
+// ================== SUPER FAST AXIOS ==================
+const fastAxios = axios.create({
   timeout: 8000,
-  headers: {
-    'x-api-key': config.privateApiKey,
-    'Content-Type': 'application/json'
-  },
-  httpAgent: new http.Agent({ keepAlive: true }),
-  httpsAgent: new https.Agent({ keepAlive: true }),
+  httpAgent: new http.Agent({ keepAlive: true, maxSockets: 50 }),
+  httpsAgent: new https.Agent({ keepAlive: true, maxSockets: 50 }),
 });
 
 function getSessionsRoot() { return path.resolve(config.sessionsDir || './sessions'); }
@@ -63,29 +60,29 @@ function isProbablyBase64(value) {
 function decodeSessionPayload(sessionId) {
   const raw = cleanSessionId(sessionId);
   if (!raw) throw new Error('SESSION_ID is empty.');
-  if (!isProbablyBase64(raw)) throw new Error('SESSION_ID invalid Base64');
+  if (!isProbablyBase64(raw)) throw new Error('SESSION_ID contains invalid Base64 characters.');
   let base64 = raw.replace(/-/g, '+').replace(/_/g, '/');
   while (base64.length % 4!== 0) base64 += '=';
   let decoded;
-  try { decoded = Buffer.from(base64, 'base64'); } catch (e) { throw new Error(`Base64 fail: ${e.message}`); }
-  if (!decoded || decoded.length === 0) throw new Error('Empty data');
+  try { decoded = Buffer.from(base64, 'base64'); } catch (e) { throw new Error(`Base64 decoding failed: ${e.message}`); }
+  if (!decoded || decoded.length === 0) throw new Error('SESSION_ID decoded to empty data.');
   const isGzip = decoded.length >= 2 && decoded[0] === 0x1f && decoded[1] === 0x8b;
   let payloadText = '';
   if (isGzip) {
-    try { payloadText = zlib.gunzipSync(decoded).toString('utf8'); } catch (e) { throw new Error(`GZIP fail: ${e.message}`); }
+    try { payloadText = zlib.gunzipSync(decoded).toString('utf8'); } catch (e) { throw new Error(`GZIP decompression failed: ${e.message}`); }
   } else { payloadText = decoded.toString('utf8'); }
-  if (!payloadText) throw new Error('Empty session data');
+  if (!payloadText) throw new Error('SESSION_ID produced empty session data.');
   let payload;
-  try { payload = JSON.parse(payloadText); } catch (e) { throw new Error('Invalid session JSON'); }
+  try { payload = JSON.parse(payloadText); } catch { throw new Error('SESSION_ID contains invalid session data.'); }
   return payload;
 }
 function restoreSessionId(sessionId) {
-  if (!sessionId) throw new Error('SESSION_ID missing');
+  if (!sessionId) throw new Error('SESSION_ID is missing.');
   const payload = decodeSessionPayload(sessionId);
-  if (!payload || payload.format!== 'MUFASER-X-SESSION') throw new Error('Invalid format');
-  if (!Array.isArray(payload.files) || payload.files.length === 0) throw new Error('No auth files');
+  if (!payload || payload.format!== 'MUFASER-X-SESSION') throw new Error('Invalid MUFASER-X SESSION format.');
+  if (!Array.isArray(payload.files) || payload.files.length === 0) throw new Error('SESSION_ID does not contain authentication files.');
   const restoredPhone = String(payload.phone || '').replace(/\D/g, '');
-  if (!restoredPhone) throw new Error('No phone in SESSION_ID');
+  if (!restoredPhone) throw new Error('SESSION_ID does not contain a valid phone number.');
   const sessionsRoot = getSessionsRoot();
   fs.mkdirSync(sessionsRoot, { recursive: true });
   const restoredDir = path.join(sessionsRoot, restoredPhone);
@@ -101,23 +98,35 @@ function restoreSessionId(sessionId) {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, Buffer.from(file.data, 'base64'));
       restoredFiles++;
-    } catch {}
+    } catch (e) { console.error(`[Session] Failed ${file.path}:`, e.message); }
   }
-  if (restoredFiles === 0) throw new Error('No usable files');
-  if (!fs.existsSync(path.join(restoredDir, 'creds.json'))) throw new Error('creds.json not restored');
-  console.log(`[Session] RESTORED ${restoredPhone} - ${restoredFiles} files`);
+  if (restoredFiles === 0) throw new Error('SESSION_ID contains no usable authentication files.');
+  if (!fs.existsSync(path.join(restoredDir, 'creds.json'))) throw new Error('SESSION_ID was decoded, but creds.json was not restored.');
+  console.log(`[Session] RESTORED ✅ ${restoredPhone} - ${restoredFiles} files`);
   return { phone: restoredPhone, sessionDir: restoredDir };
 }
+
+// ================== FAST PRIVATE REQUEST ==================
 async function privateRequest(method, endpoint, data = {}) {
-  if (!config.privateServerUrl) throw new Error('PRIVATE_SERVER_URL missing');
+  if (!config.privateServerUrl) throw new Error('PRIVATE_SERVER_URL is missing.');
   const url = config.privateServerUrl.replace(/\/+$/, '') + endpoint;
-  const response = await axiosInstance({ method, url, data });
+  const response = await fastAxios({
+    method,
+    url,
+    data,
+    headers: {
+      'x-api-key': config.privateApiKey,
+      'Content-Type': 'application/json'
+    }
+  });
   return response.data;
 }
+
 function prepareSession() {
   const sessionsRoot = getSessionsRoot();
   fs.mkdirSync(sessionsRoot, { recursive: true });
   if (activeSession && activeSession.phone && activeSession.sessionDir && localSessionExists(activeSession.sessionDir)) {
+    console.log(`[Session] ♻️ Using local session ${activeSession.phone}`);
     return activeSession;
   }
   let sessionId = String(config.sessionId || '').trim();
@@ -128,11 +137,11 @@ function prepareSession() {
       try {
         const content = fs.readFileSync(envPath, 'utf8');
         const match = content.match(/^SESSION_ID\s*=\s*(.+)$/m);
-        if (match && match[1]) { sessionId = match[1].trim(); break; }
+        if (match && match[1]) { sessionId = match[1].trim(); console.log(`[Session] 📄 SESSION_ID from ${envPath}`); break; }
       } catch {}
     }
   }
-  if (!sessionId) throw new Error('SESSION_ID not found');
+  if (!sessionId) throw new Error('SESSION_ID not found.');
   const restored = restoreSessionId(sessionId);
   activeSession = restored;
   return restored;
@@ -142,11 +151,11 @@ async function startBot() {
   if (isStarting) return;
   if (sock && sock.user) return;
   isStarting = true;
-  console.log('=== MUFASER-X PUBLIC LAUNCHER FAST ===');
+  console.log('=== MUFASER-X PUBLIC FAST ===');
   let restored;
   try { restored = prepareSession(); } catch (error) {
     isStarting = false;
-    console.error('[Session] Fail:', error.message);
+    console.error('[Session] ❌', error.message);
     return;
   }
   const { phone, sessionDir } = restored;
@@ -157,12 +166,11 @@ async function startBot() {
     saveCreds = auth.saveCreds;
   } catch (error) {
     isStarting = false;
-    console.error('[Auth] Fail:', error.message);
+    console.error('[Auth] ❌', error.message);
     return;
   }
 
-  // FIXED VERSION - No fetchLatestBaileysVersion to save 1 sec
-  const version = [2, 3000, 1017546695];
+  const version = [2, 3000, 1017546695]; // HARDCODED - saves 1 sec
 
   try {
     sock = makeWASocket({
@@ -171,96 +179,95 @@ async function startBot() {
       browser: ['Ubuntu', 'Chrome', '120.0.0.0'],
       printQRInTerminal: false,
       syncFullHistory: false,
-      markOnlineOnConnect: false, // FAST - was true
+      markOnlineOnConnect: false,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 10000,
-      keepAliveIntervalMs: 25000,
-      fireInitQueries: true,
+      keepAliveIntervalMs: 15000,
+      fireInitQueries: false,
       emitOwnEvents: true,
       logger
     });
   } catch (error) {
     sock = null; isStarting = false;
-    console.error('[Socket] Fail:', error.message);
+    console.error('[Socket] ❌', error.message);
     return;
   }
   isStarting = false;
+
   sock.ev.on('creds.update', async () => { try { await saveCreds(); } catch {} });
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
-    if (connection === 'connecting') console.log('[WhatsApp] Connecting...');
-    if (connection === 'open') {
-      console.log(`[WhatsApp] CONNECTED ${phone}`);
-    }
+    if (connection === 'connecting') console.log('[WhatsApp] 🔄 Connecting...');
+    if (connection === 'open') console.log(`[WhatsApp] CONNECTED ✅ ${phone}`);
     if (connection === 'close') {
       let statusCode = null;
       try { statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode; } catch {}
       console.log(`[WhatsApp] Closed: ${statusCode}`);
       sock = null;
       if (statusCode === DisconnectReason.loggedOut || statusCode === DisconnectReason.badSession) {
-        console.error('[WhatsApp] Session invalid - generate new');
+        console.error('[WhatsApp] ❌ Session invalid - generate new SESSION_ID');
         return;
       }
       if (reconnectTimer) return;
-      reconnectTimer = setTimeout(async () => {
-        reconnectTimer = null;
-        try { await startBot(); } catch {}
-      }, 3000); // was 5000 - faster reconnect
+      reconnectTimer = setTimeout(async () => { reconnectTimer = null; try { await startBot(); } catch {} }, 3000);
     }
   });
 
-  // ===== FAST MESSAGE HANDLER - PARALLEL =====
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type!== 'notify' && type!== 'append') return;
-    await Promise.all(messages.map(async (msg) => {
+    for (const msg of messages) {
       try {
-        if (!msg?.message) return;
+        if (!msg?.message) continue;
         const jid = msg.key?.remoteJid;
-        if (!jid || jid === 'status@broadcast') return;
+        if (!jid || jid === 'status@broadcast') continue;
         const message = msg.message;
         let text = message.conversation || message.extendedTextMessage?.text || message.imageMessage?.caption || message.videoMessage?.caption || '';
         text = String(text || '').trim();
-        if (!text.startsWith(config.prefix)) return;
+        if (!text.startsWith(config.prefix)) continue;
         const withoutPrefix = text.slice(config.prefix.length).trim();
-        if (!withoutPrefix) return;
+        if (!withoutPrefix) continue;
         const parts = withoutPrefix.split(/\s+/);
         const command = String(parts.shift() || '').toLowerCase();
         const args = parts;
         const sender = msg.key?.participant || msg.key?.remoteJid || '';
 
+        // FAST - no presence typing delay
         const result = await privateRequest('POST', '/api/command', { command, args, jid, sender, text, accountId: phone });
 
-        if (!result?.success) return;
-        const actions = Array.isArray(result.actions)? result.actions : [];
+        if (!result?.success) continue;
 
-        // Send all at once
-        const sendPromises = [];
-        if (result.message) {
-          sendPromises.push(sock.sendMessage(jid, { text: result.message }));
-        }
+        const actions = Array.isArray(result.actions)? result.actions : [];
+        // Parallel send - super fast
+        const promises = [];
+        if (result.message) promises.push(sock.sendMessage(jid, { text: result.message }));
         for (const action of actions) {
           if (action?.type === 'sendMessage' && action.jid && action.content) {
-            sendPromises.push(sock.sendMessage(action.jid, action.content));
+            promises.push(sock.sendMessage(action.jid, action.content));
           }
           if (action?.type === 'presence' && action.jid && action.presence) {
-            sendPromises.push(sock.sendPresenceUpdate(action.presence, action.jid));
+            promises.push(sock.sendPresenceUpdate(action.presence, action.jid));
           }
         }
-        await Promise.all(sendPromises);
-      } catch {}
-    }));
+        if (promises.length) await Promise.all(promises);
+
+      } catch (error) {
+        console.error('[Bridge]', error.message);
+      }
+    }
   });
 }
 
 app.get('/health', (req, res) => {
   res.json({ success: true, bot: 'MUFASER-X', status: sock?.user? 'connected' : 'starting', phone: activeSession?.phone || null });
 });
-app.get('/', (req, res) => { res.send('<h1>MUFASER-X FAST ONLINE ✅</h1>'); });
+app.get('/', (req, res) => {
+  res.send(`<h1>MUFASER-X FAST ONLINE ✅</h1><p>ROMA-TECH</p><p>Status: ${sock?.user? 'connected' : 'starting'}</p>`);
+});
 
 const PORT = process.env.PORT || config.port || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Server] Port ${PORT}`);
-  startBot().catch(e => console.error(e));
+  console.log(`[Server] Running on ${PORT}`);
+  startBot().catch(e => console.error('[Startup]', e));
 });
 process.on('uncaughtException', e => console.error('[Fatal]', e));
 process.on('unhandledRejection', e => console.error('[Unhandled]', e));
