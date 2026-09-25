@@ -2,7 +2,7 @@
     
 # 𝐌𝐔𝐅𝐀𝐒𝐄𝐑-𝐗 𝐁𝐎𝐓
 <img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&weight=700&size=26&duration=3000&pause=1000&color=FF00FF&center=true&vCenter=true&width=500&lines=MUFASER-X+IS+ON+COMING+SOON;POWERFUL+WHATSAPP+BOT;DEVELOPED+BY+ROMA-TECH" alt="Typing SVG"/>
-<img src="https://d.uguu.se/iTqMeXNH.jpg" width="30000">
+<img src="https://h.uguu.se/DRtzeVYH.jpg" width="30000">
 <img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&weight=700&size=26&duration=3000&pause=1000&color=FF6A00&center=true&vCenter=true&width=520&lines=MUFASER-X+IS+STILL;UNDER+DEVELOPMENT;THANK+GOD+FOR+THE+HELP;AND+AM+HAPPY+FOR+THOSE;SAID+THAT+I+CAN'T+MANEGE" alt="Typing SVG"/>
 
 # 🚀 MUFASER-X🚀
