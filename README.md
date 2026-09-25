@@ -16,13 +16,6 @@
   </a>
 </p>
 
-<a><img src='https://i.imgur.com/LyHic3i.gif'/>
-<p align="center">
-  <a href="https://t.me/MufaserXbot">
-    <img src="https://img.shields.io/badge/QR%20CODE-8A2BE2?style=for-the-badge&logo=whatsapp&logoColor=white"/>
-  </a>
-</p>
-
 ### 2. DOWNLOAD THE BOT ZIP
 <p align="center">
   <a href="https://github.com/romatech9/MUFASER-X/archive/refs/heads/main.zip">
