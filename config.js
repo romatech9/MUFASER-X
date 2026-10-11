@@ -1,7 +1,3 @@
-// ============================================================
-// MUFASER-X Configuration
-// WhatsApp Multi-Account Bot by ROMA-TECH
-// ============================================================
 require('dotenv').config();
 
 module.exports = {
