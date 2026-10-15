@@ -44,15 +44,3 @@ Step-by-step video guide to help you
 
 > WhatsApp Multi-Device Bot powered by [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys)  
 > Developer: **ROMA-TECH**
-
-## Features
-- AI Chat
-- Anti-Link
-- Welcome & Goodbye
-- Auto Status View
-- Owner Commands
-- Group Management
-- Anti-Delete
-- Sticker command 
-- E.T.C
----
