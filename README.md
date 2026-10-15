@@ -15,12 +15,6 @@
     <img src="https://img.shields.io/badge/GET%20SESSION%20ID-FF0000?style=for-the-badge&logo=whatsapp&logoColor=white"/>
   </a>
 </p>
-            OR 
-<p align="center">
-  <a href="https://roma-tech.onrender.com/">
-    <img src="https://img.shields.io/badge/GET%20SESSION%20ID-8A2BE2?style=for-the-badge&logo=whatsapp&logoColor=white"/>
-  </a>
-</p>
 
 ### 2. DOWNLOAD THE BOT ZIP
 <p align="center">
