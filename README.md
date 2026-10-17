@@ -38,6 +38,22 @@ Step-by-step video guide to help you
   </a>
 </p>
 
+### 4. Pair your phone
+
+Open `https://mufaserx-bot.onrender.com` in your browser.
+
+1. Enter your phone number (international format, e.g. `256712345678`).
+2. Click **Get Code** – an 8-digit code appears.
+3. Open WhatsApp → **Settings → Linked Devices → Link with phone number**.
+4. Enter the 8-digit code.
+5. The page will automatically show **Connected ✅**.
+
+After pairing, the bot will:
+- Print the `SESSION_ID` to the console.
+- Send the `SESSION_ID` to your `OWNER_NUMBER` via WhatsApp (once only).
+
+---
+
 ### DEVELOPER'S 🖥️
 > WhatsApp Multi-Device Bot powered by [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys)  
 > Developer: **ROMA-TECH**
