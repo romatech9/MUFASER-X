@@ -7,28 +7,28 @@
 <img src="https://i.imgur.com/dBaSKWF.gif" height="40" width="100%">
 </div>
 
-### 1. GET YOUR SESSION ID  
+### 1• GET YOUR SESSION ID  
 <p align="center">
   <a href="https://mufaserx-bot.onrender.com">
     <img src="https://img.shields.io/badge/GET%20SESSION%20ID-FF0000?style=for-the-badge&logo=whatsapp&logoColor=white"/>
   </a>
 </p>
 
-### 2. DOWNLOAD THE BOT ZIP
+### 2• DOWNLOAD THE BOT ZIP
 <p align="center">
   <a href="https://github.com/romatech9/MUFASER-X/archive/refs/heads/main.zip">
     <img src="https://img.shields.io/badge/DOWNLOAD%20ZIP-0000CD?style=for-the-badge&logo=github&logoColor=white"/>
   </a>
 </p>
 
-### 3. FORK IT HERE 
+### 3• FORK IT HERE 
 <p align="center">
   <a href="https://github.com/romatech9/MUFASER-X/fork">
     <img src="https://img.shields.io/badge/FORK%20THE%20REPOSITORY-00C853?style=for-the-badge&logo=github&logoColor=white"/>
   </a>
 </p>
 
-## 🎥 TUTORIAL
+## 4• TUTORIAL
 How to deploy mufaser-x on a panel  
 Step-by-step video guide to help you
   <img src="https://i.imgur.com/dBaSKWF.gif" height="40" width="100%">
@@ -38,7 +38,7 @@ Step-by-step video guide to help you
   </a>
 </p>
 
-### 4. Pair your phone
+### 5• Pair your phone
 
 Open `https://mufaserx-bot.onrender.com` in your browser.
 
@@ -53,7 +53,3 @@ After pairing, the bot will:
 - Send the `SESSION_ID` to your `OWNER_NUMBER` via WhatsApp (once only).
 
 ---
-
-### DEVELOPER'S 🖥️
-> WhatsApp Multi-Device Bot powered by [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys)  
-> Developer: **ROMA-TECH**
