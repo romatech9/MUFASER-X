@@ -38,18 +38,24 @@ Step-by-step video guide to help you
   </a>
 </p>
 
-### 5• Pair your phone
+### 🚀 MUFASER-X FEATURE'S 
 
-Open `https://mufaserx-bot.onrender.com` in your browser.
-
-1. Enter your phone number (international format, e.g. `256712345678`).
-2. Click **Get Code** – an 8-digit code appears.
-3. Open WhatsApp → **Settings → Linked Devices → Link with phone number**.
-4. Enter the 8-digit code.
-5. The page will automatically show **Connected ✅**.
-
-After pairing, the bot will:
-- Print the `SESSION_ID` to the console.
-- Send the `SESSION_ID` to your `OWNER_NUMBER` via WhatsApp (once only).
-
+- 🤖 AI Chat
+- 📥 Download Commands 
+- 🔗 Anti-Link Protection
+- 👀 Auto Status View
+- 💬 Auto Status Reply
+- ❤️ Auto React
+- 👋 Welcome Messages
+- 👋 Goodbye Messages
+- 👥 Group Management
+- 👑 Owner Commands
+- ⚡ `.ping` Command
+- 📜 `.menu` Command
+- 🔐 Pairing Code Login
+- 🔑 Session ID Restoration
+- 📂 Command System
+- 🔌 Plugin System
+- ⚙️ Node.js Architecture
+  
 ---
