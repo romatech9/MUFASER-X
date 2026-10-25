@@ -28,7 +28,7 @@
   </a>
 </p>
 
-## 4• TUTORIAL
+### 4• TUTORIAL
 How to deploy mufaser-x on a panel  
 Step-by-step video guide to help you
   <img src="https://i.imgur.com/dBaSKWF.gif" height="40" width="100%">
