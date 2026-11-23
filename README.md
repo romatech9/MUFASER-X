@@ -29,9 +29,7 @@
 </p>
 
 ### 4• TUTORIAL
-How to deploy mufaser-x on a panel  
-Step-by-step video guide to help you
-  <img src="https://i.imgur.com/dBaSKWF.gif" height="40" width="100%">
+<img src="https://i.imgur.com/dBaSKWF.gif" height="40" width="100%">
 <p align="center">
   <a href="https://youtube.com/shorts/XZ3DyS_Lumk?si=mQrkw6Y1PMGOEkOa">
     <img src="https://img.shields.io/badge/CLICK%20HERE%20TO%20WATCH-FF0000?style=for-the-badge&logo=youtube&logoColor=white"/>
